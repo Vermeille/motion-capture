@@ -196,6 +196,11 @@ class Landmarks:
     def get(self, part):
         return self.lds[part].astype(dtype=int)
 
+    def merge_with_new_frame(self, lds, damp=0.7):
+        for k, v in self.lds.iteritems():
+            self.lds[k] = self.lds[k] * damp + lds.lds[k] * (1 - damp)
+
+
 def draw_landmarks(frame, lds):
     #cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
     # Make the eyebrows into a nightmare
@@ -213,43 +218,7 @@ def draw_landmarks(frame, lds):
     cv2.fillPoly(frame, [lds.get('nose_tip')], (150, 0, 0, 128))
     cv2.polylines(frame, [lds.get('chin')], False, (150, 0, 0, 128))
 
-def capture_landmarks(stop=' '):
-    lds = None
-    while True:
-        ret, frame = video_capture.read()
-        small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-
-        face_landmarks_list = face_recognition.face_landmarks(small_frame)
-
-        for face_landmarks in face_landmarks_list:
-            face_landmarks = Landmarks(face_landmarks)
-            face_landmarks.normalize()
-            face_landmarks.scale(100)
-            face_landmarks.translate(np.array([[150, 40]]))
-            draw_landmarks(frame, face_landmarks)
-            lds = face_landmarks.fingerprint()
-        cv2.imshow('Vid', frame)
-
-        if cv2.waitKey(1) & 0xFF == ord(stop):
-            break
-    return lds
-
-
-still_print = capture_landmarks(stop='a')
-print(still_print)
-
-omouth_print = capture_landmarks(stop='z')
-print(omouth_print)
-
-def similarity(lds):
-    st = np.exp(-np.linalg.norm(lds - still_print)  / 20)
-    om = np.exp(-np.linalg.norm(lds - omouth_print) / 20)
-    total = st + om
-    print(st / total, om / total)
-    return {'idle': st / total, 'd2': om / total }
-
-
-while True:
+def one_frame():
     ret, frame = video_capture.read()
     small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
 
@@ -259,13 +228,58 @@ while True:
         face_landmarks = Landmarks(face_landmarks)
         face_landmarks.normalize()
         face_landmarks.scale(100)
-        face_landmarks.translate([150, 40])
-        weights = similarity(face_landmarks.fingerprint())
-        svgWidget.load(svg.blend(weights))
-        print(weights)
-        draw_landmarks(frame, face_landmarks)
-    cv2.imshow('Vid', frame)
+        face_landmarks.translate(np.array([[150, 40]]))
+        return frame, face_landmarks
+    return frame, None
 
+def capture_landmarks(stop=' '):
+    frame, lds = one_frame()
+
+    while not lds:
+        frame, lds = one_frame()
+
+    while True:
+        if cv2.waitKey(1) & 0xFF == ord(stop):
+            break
+
+        frame, lds2 = one_frame()
+
+        if lds2:
+            lds.merge_with_new_frame(lds2)
+            draw_landmarks(frame, lds)
+
+        cv2.imshow('Vid', frame)
+    return lds.fingerprint()
+
+
+still_print = capture_landmarks(stop='a')
+print(still_print)
+
+omouth_print = capture_landmarks(stop='z')
+print(omouth_print)
+
+def similarity(lds):
+    st = np.exp(-np.linalg.norm(lds - still_print)  / 40)
+    om = np.exp(-np.linalg.norm(lds - omouth_print) / 40)
+    total = st + om
+    print(st / total, om / total)
+    return {'idle': st / total, 'd2': om / total }
+
+
+frame, lds = one_frame()
+
+while not lds:
+    frame, lds = one_frame()
+
+while True:
+    frame, lds2 = one_frame()
+    if lds2:
+        lds.merge_with_new_frame(lds2)
+        draw_landmarks(frame, lds)
+        weights = similarity(lds.fingerprint())
+        svgWidget.load(svg.blend(weights))
+
+    cv2.imshow('Vid', frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
