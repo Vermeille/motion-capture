@@ -31,7 +31,6 @@ class Path:
     def __init__(self, d):
         self.data = d.split(' ')
         self.data = {'idle': [self.parse(x) for x in self.data]}
-        print(self.data)
 
     def blend(self, coefs):
         res = 'd="'
@@ -86,7 +85,6 @@ class Node:
 
     def merge(self, n, svg):
         assert self.tag == svg.tag
-        print(self.tag, svg.tag, len(self.attributes), len(svg.attributes))
         assert len(self.attributes) == len(svg.attributes)
         assert len(self.children) == len(svg.children)
 
@@ -116,7 +114,6 @@ class Svg:
     def parse(self, xml):
         c = None
         if xml.text and xml.text.strip('\n\r ') != "":
-            print(repr(xml.text))
             c = [Text(xml.text)]
         else:
             c = [self.parse(x) for x in xml]
@@ -142,131 +139,106 @@ app = QtGui.QApplication(sys.argv)
 svgWidget = QtSvg.QSvgWidget()
 svgWidget.setGeometry(50,50,759,668)
 svgWidget.show()
-#svgWidget.load('drawing.svg')
 svgWidget.load(svg.blend({'idle': 1}))
 
 video_capture = cv2.VideoCapture(0)
 
-def to_pts(xs):
-    return [np.array(xs, dtype=int) * 2]
-
 class Landmarks:
+    #landmarks are of the shape (N, 2)
     lds = None
 
     def __init__(self, xs):
-        self.lds = xs
+        if not type(xs) is np.array:
+            self.lds = {k: np.array(v) for k, v in xs.iteritems()}
+        else:
+            self.lds = xs
 
     def face_center(self):
-        return self.lds['nose_bridge'][0]
+        return self.lds['nose_bridge'][0,:].reshape(1, 2)
 
     def get_angle(self):
-        bridge = to_pts(self.lds['nose_bridge'])
-        angle = bridge[0][-1] - bridge[0][0]
+        bridge = self.lds['nose_bridge']
+        angle = bridge[-1,:] - bridge[0,:]
         angle = math.atan2(angle[1], angle[0]) - math.pi / 2
         return angle
 
-    def landmarks_map(self, f):
-        return Landmarks({ k: [f(v0) for v0 in v] for k, v in self.lds.iteritems()})
-
-    def translate_point(self, x, tr):
-        return [x[0] + tr[0], x[1] + tr[1]]
-
     def translate(self, tr):
-        return self.landmarks_map(lambda x: self.translate_point(x, tr))
-
-    def rotate_point(self, x, center, angle):
-        x = [x[0] - center[0], x[1] - center[1]]
-        return [x[0] * math.cos(angle) - x[1] * math.sin(angle) + center[0],
-                x[0] * math.sin(angle) + x[1] * math.cos(angle) + center[1]]
+        for k, v in self.lds.iteritems():
+            self.lds[k] += tr
 
     def scale(self, s):
-        return self.landmarks_map(lambda x: [x[0] * s, x[1] * s])
+        for k, v in self.lds.iteritems():
+            self.lds[k] *= s
 
     def unscale(self):
-        bridge = to_pts(self.lds['nose_bridge'])
-        length = np.linalg.norm(bridge[0][-1] - bridge[0][0])
+        bridge = self.lds['nose_bridge']
+        length = np.linalg.norm(bridge[-1,:] - bridge[0,:])
         return self.scale(1 / length)
 
     def rotate(self, angle):
         center = self.face_center()
-        return self.landmarks_map(lambda x: self.rotate_point(x, center, angle))
+        rot = np.array(
+                [[math.cos(angle), math.sin(angle)],
+                 [-math.sin(angle), math.cos(angle)]])
+        for k, v in self.lds.iteritems():
+            self.lds[k] = (v - center).dot(rot) + center
 
     def normalize(self):
         angle = self.get_angle()
         center = self.face_center()
-        return self.rotate(-angle).translate([-center[0], -center[1]]).unscale()
+        self.rotate(-angle)
+        self.translate(-center)
+        self.unscale()
 
     def fingerprint(self):
         return np.array(self.lds['bottom_lip'] + self.lds['top_lip'])
 
-still_print = None
-while True:
-    ret, frame = video_capture.read()
-    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    def get(self, part):
+        return self.lds[part].astype(dtype=int)
 
-    face_landmarks_list = face_recognition.face_landmarks(small_frame)
+def draw_landmarks(frame, lds):
+    #cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+    # Make the eyebrows into a nightmare
+    cv2.fillPoly(frame, [lds.get('left_eyebrow')], (68, 54, 39, 128))
+    cv2.fillPoly(frame, [lds.get('right_eyebrow')], (68, 54, 39, 128))
 
-    for face_landmarks in face_landmarks_list:
-        face_landmarks = Landmarks(face_landmarks)
-        face_landmarks = face_landmarks.normalize().scale(100).translate([150, 40])
-        still_print = face_landmarks.fingerprint()
-        face_landmarks = face_landmarks.lds
-        #cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-        # Make the eyebrows into a nightmare
-        cv2.fillPoly(frame, to_pts(face_landmarks['left_eyebrow']), (68, 54, 39, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['right_eyebrow']), (68, 54, 39, 128))
+    cv2.fillPoly(frame, [lds.get('left_eye')], (150, 54, 39, 128))
+    cv2.fillPoly(frame, [lds.get('right_eye')], (150, 54, 39, 128))
 
-        cv2.fillPoly(frame, to_pts(face_landmarks['left_eye']), (150, 54, 39, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['right_eye']), (150, 54, 39, 128))
+    # Gloss the lips
+    cv2.fillPoly(frame, [lds.get('top_lip')], (150, 0, 0, 128))
+    cv2.fillPoly(frame, [lds.get('bottom_lip')], (150, 0, 0, 128))
 
-        # Gloss the lips
-        cv2.fillPoly(frame, to_pts(face_landmarks['top_lip']), (150, 0, 0, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['bottom_lip']), (150, 0, 0, 128))
+    cv2.fillPoly(frame, [lds.get('nose_bridge')], (150, 0, 0, 128))
+    cv2.fillPoly(frame, [lds.get('nose_tip')], (150, 0, 0, 128))
+    cv2.polylines(frame, [lds.get('chin')], False, (150, 0, 0, 128))
+
+def capture_landmarks(stop=' '):
+    lds = None
+    while True:
+        ret, frame = video_capture.read()
+        small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+
+        face_landmarks_list = face_recognition.face_landmarks(small_frame)
+
+        for face_landmarks in face_landmarks_list:
+            face_landmarks = Landmarks(face_landmarks)
+            face_landmarks.normalize()
+            face_landmarks.scale(100)
+            face_landmarks.translate(np.array([[150, 40]]))
+            draw_landmarks(frame, face_landmarks)
+            lds = face_landmarks.fingerprint()
+        cv2.imshow('Vid', frame)
+
+        if cv2.waitKey(1) & 0xFF == ord(stop):
+            break
+    return lds
 
 
-        cv2.fillPoly(frame, to_pts(face_landmarks['nose_bridge']), (150, 0, 0, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['nose_tip']), (150, 0, 0, 128))
-        cv2.polylines(frame, to_pts(face_landmarks['chin']), False, (150, 0, 0, 128))
-    cv2.imshow('Vid', frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('a'):
-        break
-
+still_print = capture_landmarks(stop='a')
 print(still_print)
 
-omouth_print = None
-while True:
-    ret, frame = video_capture.read()
-    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-
-    face_landmarks_list = face_recognition.face_landmarks(small_frame)
-
-    for face_landmarks in face_landmarks_list:
-        face_landmarks = Landmarks(face_landmarks)
-        face_landmarks = face_landmarks.normalize().scale(100).translate([150, 40])
-        omouth_print = face_landmarks.fingerprint()
-        face_landmarks = face_landmarks.lds
-        #cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-        # Make the eyebrows into a nightmare
-        cv2.fillPoly(frame, to_pts(face_landmarks['left_eyebrow']), (68, 54, 39, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['right_eyebrow']), (68, 54, 39, 128))
-
-        cv2.fillPoly(frame, to_pts(face_landmarks['left_eye']), (150, 54, 39, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['right_eye']), (150, 54, 39, 128))
-
-        # Gloss the lips
-        cv2.fillPoly(frame, to_pts(face_landmarks['top_lip']), (150, 0, 0, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['bottom_lip']), (150, 0, 0, 128))
-
-
-        cv2.fillPoly(frame, to_pts(face_landmarks['nose_bridge']), (150, 0, 0, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['nose_tip']), (150, 0, 0, 128))
-        cv2.polylines(frame, to_pts(face_landmarks['chin']), False, (150, 0, 0, 128))
-    cv2.imshow('Vid', frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('z'):
-        break
-
+omouth_print = capture_landmarks(stop='z')
 print(omouth_print)
 
 def similarity(lds):
@@ -285,27 +257,13 @@ while True:
 
     for face_landmarks in face_landmarks_list:
         face_landmarks = Landmarks(face_landmarks)
-        face_landmarks = face_landmarks.normalize().scale(100).translate([150, 40])
+        face_landmarks.normalize()
+        face_landmarks.scale(100)
+        face_landmarks.translate([150, 40])
         weights = similarity(face_landmarks.fingerprint())
         svgWidget.load(svg.blend(weights))
         print(weights)
-        face_landmarks = face_landmarks.lds
-        #cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-        # Make the eyebrows into a nightmare
-        cv2.fillPoly(frame, to_pts(face_landmarks['left_eyebrow']), (68, 54, 39, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['right_eyebrow']), (68, 54, 39, 128))
-
-        cv2.fillPoly(frame, to_pts(face_landmarks['left_eye']), (150, 54, 39, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['right_eye']), (150, 54, 39, 128))
-
-        # Gloss the lips
-        cv2.fillPoly(frame, to_pts(face_landmarks['top_lip']), (150, 0, 0, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['bottom_lip']), (150, 0, 0, 128))
-
-
-        cv2.fillPoly(frame, to_pts(face_landmarks['nose_bridge']), (150, 0, 0, 128))
-        cv2.fillPoly(frame, to_pts(face_landmarks['nose_tip']), (150, 0, 0, 128))
-        cv2.polylines(frame, to_pts(face_landmarks['chin']), False, (150, 0, 0, 128))
+        draw_landmarks(frame, face_landmarks)
     cv2.imshow('Vid', frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
