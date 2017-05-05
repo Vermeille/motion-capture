@@ -4,22 +4,16 @@ import face_recognition
 import cv2
 import numpy as np
 import math
+import sys
 from svg import Svg
 from landmarks import Landmarks
 from PyQt4 import QtGui, QtSvg, QtCore
 
+if len(sys.argv) < 2:
+    sys.stderr.write("usage: motion_capture.py pose1.svg pose2.svg...\n")
+    sys.exit(0)
+
 frame_subsampling_factor = 2
-
-svg = Svg('squarish.svg')
-svg.merge('d2', Svg('squarish2.svg'))
-
-app = QtGui.QApplication(sys.argv)
-svgWidget = QtSvg.QSvgWidget()
-svgWidget.setGeometry(50,50,759,668)
-svgWidget.show()
-svgWidget.load(svg.blend({'idle': 1}))
-
-video_capture = cv2.VideoCapture(0)
 
 def draw_landmarks(frame, lds):
     #cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
@@ -54,9 +48,11 @@ def one_frame():
 
 def capture_landmarks(stop=' '):
     frame, lds = one_frame()
+    cv2.imshow('Vid', frame)
 
     while not lds:
         frame, lds = one_frame()
+        cv2.imshow('Vid', frame)
 
     while True:
         if cv2.waitKey(1) & 0xFF == ord(stop):
@@ -71,33 +67,44 @@ def capture_landmarks(stop=' '):
         cv2.imshow('Vid', frame)
     return lds.fingerprint()
 
+app = QtGui.QApplication(sys.argv)
+svgWidget = QtSvg.QSvgWidget()
+svgWidget.setGeometry(50,50,759,668)
+svgWidget.show()
 
-still_print = capture_landmarks(stop='a')
-print(still_print)
+video_capture = cv2.VideoCapture(0)
 
-omouth_print = capture_landmarks(stop='z')
-print(omouth_print)
+faces = {}
+svg = Svg(sys.argv[1])
+for fname in sys.argv[1:]:
+    svg2 = Svg(fname)
+    svg.merge(fname, svg2)
 
-def similarity(lds):
-    st = np.exp(-np.linalg.norm(lds - still_print)  / 40)
-    om = np.exp(-np.linalg.norm(lds - omouth_print) / 40)
-    total = st + om
-    print(st / total, om / total)
-    return {'idle': st / total, 'd2': om / total }
+    svgWidget.load(svg.blend({fname: 1}))
+    face = capture_landmarks(stop='a')
+    print(face)
+    faces[fname] = face
+print(faces)
 
+def similarity(lds, faces):
+    similarities = {}
+    total = 0
+    for k, v in faces.iteritems():
+        sim = np.exp(-np.linalg.norm(lds - v)  / 40)
+        similarities[k] = sim
+        total += sim
+    for k in similarities:
+        similarities[k] /= total
+    return similarities
 
 frame, lds = one_frame()
-
-while not lds:
-    frame, lds = one_frame()
-
 while True:
     frame, lds2 = one_frame()
     if lds2:
         lds.merge_with_new_frame(lds2)
+        similarities = similarity(lds.fingerprint(), faces)
         draw_landmarks(frame, lds)
-        weights = similarity(lds.fingerprint())
-        svgWidget.load(svg.blend(weights))
+        svgWidget.load(svg.blend(similarities))
 
     cv2.imshow('Vid', frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
