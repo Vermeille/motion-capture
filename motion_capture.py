@@ -87,7 +87,7 @@ for fname in sys.argv[1:]:
 print(faces)
 
 def softmax(xs):
-    xs = np.exp(xs)
+    xs = np.exp(xs - np.max(xs))
     xs /= np.sum(xs)
     return xs
 
