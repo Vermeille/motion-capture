@@ -12,12 +12,12 @@ class Landmarks:
             self.lds = xs
 
     def face_center(self):
-        return self.lds['nose_bridge'][0,:].reshape(1, 2)
+        return self.lds['nose_tip'][0,:].reshape(1, 2)
 
     def get_angle(self):
-        bridge = self.lds['nose_bridge']
+        bridge = self.lds['nose_tip']
         angle = bridge[-1,:] - bridge[0,:]
-        angle = math.atan2(angle[1], angle[0]) - math.pi / 2
+        angle = math.atan2(angle[1], angle[0])
         return angle
 
     def translate(self, tr):
@@ -29,7 +29,7 @@ class Landmarks:
             self.lds[k] *= s
 
     def unscale(self):
-        bridge = self.lds['nose_bridge']
+        bridge = self.lds['nose_tip']
         length = np.linalg.norm(bridge[-1,:] - bridge[0,:])
         return self.scale(1 / length)
 
