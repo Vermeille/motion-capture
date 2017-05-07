@@ -49,7 +49,10 @@ class Landmarks:
         self.unscale()
 
     def fingerprint(self):
-        return np.array(self.lds['bottom_lip'] + self.lds['top_lip'])
+        return np.concatenate((self.lds['bottom_lip'],
+            self.lds['top_lip'],
+            self.lds['right_eye'], self.lds['left_eye'],
+            self.lds['left_eyebrow'], self.lds['right_eyebrow']))
 
     def get(self, part):
         return self.lds[part].astype(dtype=int)

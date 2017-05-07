@@ -42,8 +42,8 @@ def one_frame():
     for face_landmarks in face_landmarks_list:
         face_landmarks = Landmarks(face_landmarks)
         face_landmarks.normalize()
-        face_landmarks.scale(100)
-        face_landmarks.translate(np.array([[150, 40]]))
+        face_landmarks.scale(60)
+        face_landmarks.translate(np.array([[frame.shape[1] / 2, frame.shape[0] / 2]]))
         return frame, face_landmarks
     return frame, None
 
