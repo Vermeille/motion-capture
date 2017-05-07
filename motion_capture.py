@@ -107,17 +107,18 @@ def sparsity_loss(ws):
     return np.abs(ws).sum()
 
 def compare_faces(ws, faces, cur_face):
-    ws = softmax(ws)
+    #ws = softmax(ws)
     rec_face = apply_weights(ws, faces)
     return reconstruction_loss(cur_face, rec_face) + 0.5 * sparsity_loss(ws)
 
 def find_weights(faces, cur_face):
     ws = np.zeros((len(faces),))
-    ws[0] = 2
-    solution = scipy.optimize.minimize(compare_faces, ws, args=(faces, cur_face), method='L-BFGS-B', jac=False)
+    ws[0] = 1
+    solution = scipy.optimize.minimize(compare_faces, ws, args=(faces,
+        cur_face), method='L-BFGS-B', jac=False, bounds=[(0, None)] * len(ws))
     solution = solution.x
     #solution, iters, rc = scipy.optimize.fmin_tnc(compare_faces, ws, args=(faces, cur_face), approx_grad=True, epsilon=1e-5)
-    solution = softmax(solution)
+    #solution = softmax(solution)
     ws = {}
     i = 0
     for k in sorted(faces):
