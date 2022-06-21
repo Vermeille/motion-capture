@@ -1,4 +1,4 @@
-numpy==1.11.0
+numpy==1.22.0
 face_recognition==0.1.14
 Pillow==8.3.2
 PyQt4==4.11.4
